@@ -1,0 +1,10 @@
+- lfs_mount prepares a LittleFS filesystem for use by validating the block device, initializing in-memory structures, and ensuring consistency. It’s the entry point for accessing the filesystem, handling setup tasks like cache initialization, superblock validation, and power-loss recovery.
+- lfs_format initializes a block device with a fresh LittleFS filesystem by erasing blocks, writing a superblock, creating an empty root directory, and setting up the global state. It ensures the device is ready for mounting and subsequent operations, with robust error handling and power-loss safety. 
+- When lfs_mount fails, formatting with lfs_format and retrying the mount is a standard recovery mechanism in LittleFS. It addresses corruption, uninitialized devices, or configuration mismatches by erasing the block device, writing a new superblock and root directory, and ensuring consistency. 
+- lfs_file_open opens a file in LittleFS by locating or creating its metadata, initializing an lfs_file_t handle, and setting up the file for reading or writing.
+- lfs_file_read reads data from an open file into a buffer 
+- lfs_file_rewind resets an open file’s position to the beginning (offset 0), enabling subsequent reads or writes to start from the file’s start.
+- lfs_file_write: Writes data to a file, updating the content table and block device 
+- lfs_file_close: Closes a file, flushing writes and releasing resources. ( prevents read)
+- lfs_unmount: Unmounts the filesystem, ensuring consistency and freeing resources (prevents filesystem access)
+- to access file again you need to first remount it and then reopen it 

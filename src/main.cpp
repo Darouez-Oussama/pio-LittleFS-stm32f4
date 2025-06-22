@@ -435,25 +435,24 @@
          lfs_file_write(&lfs, &file, &boot_count, sizeof(boot_count));
          
          lfs_file_close(&lfs, &file);
+
          
          Serial.print("Boot count: "); Serial.println(boot_count);
      } else {
          Serial.print("Failed to open boot_count file, error: "); Serial.println(file_err);
      }
-     
      lfs_unmount(&lfs);
-     
+     // Try to open a file after unmounting (will fail)
+     err = lfs_file_open(&lfs, &file, "boot_count", LFS_O_RDONLY);
+     if (err) {
+       printf("Open failed (filesystem unmounted): %d\n", err); // LFS_ERR_INVAL
+     }
      Serial.println("Setup completed successfully");
      Serial.print("Read operations: "); Serial.println(on_ic_read_cnt);
      Serial.print("Write operations: "); Serial.println(on_ic_write_cnt);
      Serial.print("Port errors: "); Serial.println(ef_err_port_cnt);
  }
  
- /**
-  * @brief Arduino main loop function
-  * 
-  * Currently empty - add your main application logic here.
-  */
  void loop() {
      delay(1000);
  }
