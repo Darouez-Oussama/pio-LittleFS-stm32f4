@@ -322,7 +322,7 @@
      .sync = sync,
      .read_size = 16,
      .prog_size = 1, // Changed to 1 for byte writes
-     .block_size = 4096,
+     .block_size = 48,
      .block_count = 32,
      .block_cycles = 500,
      .cache_size = 256,
@@ -451,6 +451,57 @@
      Serial.print("Read operations: "); Serial.println(on_ic_read_cnt);
      Serial.print("Write operations: "); Serial.println(on_ic_write_cnt);
      Serial.print("Port errors: "); Serial.println(ef_err_port_cnt);
+
+      err = lfs_mount(&lfs, &cfg);
+    if (err) {
+        // Mount failed, format and retry
+        err = lfs_format(&lfs, &cfg);
+        if (!err) err = lfs_mount(&lfs, &cfg);
+        if (err) {
+            printf("Setup failed: %d\n", err);
+       
+        }
+    }
+
+    // Step 2: Create the "txts" directory
+    err = lfs_mkdir(&lfs, "txts");
+    if (err) {
+        if (err == LFS_ERR_EXIST) {
+            printf("Directory 'txts' already exists\n");
+        } else {
+            printf("Failed to create directory: %d\n", err);
+            lfs_unmount(&lfs);
+          
+        }
+    } else {
+        printf("Created directory 'txts'\n");
+    }
+
+    // Step 3: Create and write to a file in the "txts" directory
+    err = lfs_file_open(&lfs, &file, "txts/myfile.txt", LFS_O_RDWR | LFS_O_CREAT);
+    if (err) {
+        printf("File open failed: %d\n", err);
+    } else {
+        const char *data = "This is a text file in the txts directory!";
+        lfs_ssize_t bytes_written = lfs_file_write(&lfs, &file, data, strlen(data));
+        if (bytes_written < 0) {
+            printf("Write failed: %d\n", bytes_written);
+        } else {
+            printf("Wrote %d bytes to txts/myfile.txt\n", bytes_written);
+        }
+        // Close the file
+        err = lfs_file_close(&lfs, &file);
+        if (err) {
+            printf("Close failed: %d\n", err);
+        }
+    }
+
+    // Step 4: Unmount the filesystem
+    err = lfs_unmount(&lfs);
+    if (err) {
+        printf("Unmount failed: %d\n", err);
+        
+    }
  }
  
  void loop() {
