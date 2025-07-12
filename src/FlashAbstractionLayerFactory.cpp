@@ -2,7 +2,7 @@
  **************************************************************************************************
  *
  * @file    : FlashAbstractionLayerFactory.cpp
- * @author  : [Your Name]
+ * @author  : Oussama Darouez 
  * @version : 1.0
  * @date    : July 2025
  * @brief   : Factory class implementation for creating Flash Abstraction Layer for LittleFS

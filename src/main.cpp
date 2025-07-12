@@ -2,7 +2,7 @@
  **************************************************************************************************
  *
  * @file    : main.cpp
- * @author  : [Your Name]
+ * @author  : Oussama Darouez
  * @version : 1.0
  * @date    : July 2025
  * @brief   : Main program for LittleFS on STM32 with PlatformIO and Arduino
