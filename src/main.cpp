@@ -321,9 +321,9 @@
      .erase = erase,
      .sync = sync,
      .read_size = 16,
-     .prog_size = 1, // Changed to 1 for byte writes
-     .block_size = 48,
-     .block_count = 32,
+     .prog_size = 1,
+     .block_size = 1024,  // 16 KB 16384
+     .block_count = 256,    // 256 KB / 16 KB = 16 blocks
      .block_cycles = 500,
      .cache_size = 256,
      .lookahead_size = 16,
@@ -371,8 +371,8 @@
          ef_err_port_cnt++;
      } else {
          Serial.println("Manual erase successful");
-         // Verify erase
-         if (verify_flash_erased(LITTLE_FS_STARTIN_ADDRESS, 4096 * 2)) {
+         // Verify erase for the entire 256 KB region
+         if (verify_flash_erased(LITTLE_FS_STARTIN_ADDRESS, 128 * 1024 * 2)) {
              Serial.println("Flash verified as erased");
          } else {
              Serial.println("Flash verification failed");
@@ -391,29 +391,25 @@
   */
  void setup() {
      Serial.begin(9600);
-     while (!Serial) {} // Wait for serial to be ready
+     while (!Serial) {} // Wait for serial
      Serial.println("STM32F401RE LittleFS Demo");
      Serial.println("========================================");
      
-     // Log system clock and flash latency
      Serial.print("System clock: "); Serial.print(SystemCoreClock / 1000000); Serial.println(" MHz");
      Serial.print("Flash latency: "); Serial.println((FLASH->ACR & FLASH_ACR_LATENCY) >> FLASH_ACR_LATENCY_Pos);
- 
-     // Skip option byte check since confirmed no write protection
      Serial.println("Note: Skipping write protection check as confirmed disabled in STM32CubeProgrammer");
  
-     // Manually erase LittleFS region to ensure clean state
      erase_littlefs_region();
      
-     // Mount the filesystem
      int err = lfs_mount(&lfs, &cfg);
-     
-     // Reformat if we can't mount the filesystem
      if (err) {
          Serial.println("Formatting filesystem...");
-         lfs_format(&lfs, &cfg);
+         err = lfs_format(&lfs, &cfg);
+         if (err) {
+             Serial.print("Format failed, error: "); Serial.println(err);
+             return;
+         }
          err = lfs_mount(&lfs, &cfg);
-         
          if (err) {
              Serial.print("Failed to mount filesystem, error: "); Serial.println(err);
              return;
@@ -423,85 +419,79 @@
          Serial.println("Filesystem mounted successfully");
      }
      
-     // Read current boot count
+     // Boot count
      uint32_t boot_count = 0;
-     int file_err = lfs_file_open(&lfs, &file, "boot_count", LFS_O_RDWR | LFS_O_CREAT);
-     
-     if (file_err == 0) {
+     err = lfs_file_open(&lfs, &file, "boot_count", LFS_O_RDWR | LFS_O_CREAT);
+     if (err) {
+         Serial.print("Failed to open boot_count file, error: "); Serial.println(err);
+         lfs_unmount(&lfs);
+         return;
+     }
+     for (int i = 0; i < 5; i++) {
          lfs_file_read(&lfs, &file, &boot_count, sizeof(boot_count));
-         
          boot_count += 1;
          lfs_file_rewind(&lfs, &file);
          lfs_file_write(&lfs, &file, &boot_count, sizeof(boot_count));
-         
-         lfs_file_close(&lfs, &file);
-
-         
          Serial.print("Boot count: "); Serial.println(boot_count);
-     } else {
-         Serial.print("Failed to open boot_count file, error: "); Serial.println(file_err);
      }
-     lfs_unmount(&lfs);
-     // Try to open a file after unmounting (will fail)
-     err = lfs_file_open(&lfs, &file, "boot_count", LFS_O_RDONLY);
+     lfs_file_close(&lfs, &file);
+ 
+     // Create directory
+     err = lfs_mkdir(&lfs, "txts");
+     if (err && err != LFS_ERR_EXIST) {
+         Serial.print("Failed to create directory, error: "); Serial.println(err);
+         lfs_unmount(&lfs);
+         return;
+     }
+     Serial.println("Created directory 'txts'");
+ 
+     // Create and write to file
+     err = lfs_file_open(&lfs, &file, "txts/myfile.txt", LFS_O_RDWR | LFS_O_CREAT);
      if (err) {
-       printf("Open failed (filesystem unmounted): %d\n", err); // LFS_ERR_INVAL
+         Serial.print("File open failed, error: "); Serial.println(err);
+         lfs_unmount(&lfs);
+         return;
      }
+     const char *data = "This is a text file in the txts directory!";
+     lfs_ssize_t bytes_written = lfs_file_write(&lfs, &file, data, strlen(data));
+     if (bytes_written < 0) {
+         Serial.print("Write failed, error: "); Serial.println(bytes_written);
+     } else {
+         Serial.print("Wrote "); Serial.print(bytes_written); Serial.println(" bytes to txts/myfile.txt");
+     }
+     lfs_file_close(&lfs, &file);
+ 
+     // Read from file
+     err = lfs_file_open(&lfs, &file, "txts/myfile.txt", LFS_O_RDONLY);
+     if (err) {
+         Serial.print("Failed to open txts/myfile.txt for reading, error: "); Serial.println(err);
+         lfs_unmount(&lfs);
+         return;
+     }
+     char buffer[64]; // Buffer to hold file contents (larger than the 41-byte string)
+     lfs_ssize_t bytes_read = lfs_file_read(&lfs, &file, buffer, sizeof(buffer) - 1);
+     if (bytes_read < 0) {
+         Serial.print("Read failed, error: "); Serial.println(bytes_read);
+         lfs_file_close(&lfs, &file);
+         lfs_unmount(&lfs);
+         return;
+     }
+     buffer[bytes_read] = '\0'; // Null-terminate the string
+     Serial.print("Read "); Serial.print(bytes_read); Serial.println(" bytes from txts/myfile.txt");
+     Serial.print("File contents: "); Serial.println(buffer);
+     lfs_file_close(&lfs, &file);
+ 
+     // Unmount filesystem
+     err = lfs_unmount(&lfs);
+     if (err) {
+         Serial.print("Unmount failed, error: "); Serial.println(err);
+         return;
+     }
+ 
      Serial.println("Setup completed successfully");
      Serial.print("Read operations: "); Serial.println(on_ic_read_cnt);
      Serial.print("Write operations: "); Serial.println(on_ic_write_cnt);
      Serial.print("Port errors: "); Serial.println(ef_err_port_cnt);
-
-      err = lfs_mount(&lfs, &cfg);
-    if (err) {
-        // Mount failed, format and retry
-        err = lfs_format(&lfs, &cfg);
-        if (!err) err = lfs_mount(&lfs, &cfg);
-        if (err) {
-            printf("Setup failed: %d\n", err);
-       
-        }
-    }
-
-    // Step 2: Create the "txts" directory
-    err = lfs_mkdir(&lfs, "txts");
-    if (err) {
-        if (err == LFS_ERR_EXIST) {
-            printf("Directory 'txts' already exists\n");
-        } else {
-            printf("Failed to create directory: %d\n", err);
-            lfs_unmount(&lfs);
-          
-        }
-    } else {
-        printf("Created directory 'txts'\n");
-    }
-
-    // Step 3: Create and write to a file in the "txts" directory
-    err = lfs_file_open(&lfs, &file, "txts/myfile.txt", LFS_O_RDWR | LFS_O_CREAT);
-    if (err) {
-        printf("File open failed: %d\n", err);
-    } else {
-        const char *data = "This is a text file in the txts directory!";
-        lfs_ssize_t bytes_written = lfs_file_write(&lfs, &file, data, strlen(data));
-        if (bytes_written < 0) {
-            printf("Write failed: %d\n", bytes_written);
-        } else {
-            printf("Wrote %d bytes to txts/myfile.txt\n", bytes_written);
-        }
-        // Close the file
-        err = lfs_file_close(&lfs, &file);
-        if (err) {
-            printf("Close failed: %d\n", err);
-        }
-    }
-
-    // Step 4: Unmount the filesystem
-    err = lfs_unmount(&lfs);
-    if (err) {
-        printf("Unmount failed: %d\n", err);
-        
-    }
  }
  
  void loop() {
