@@ -1,499 +1,208 @@
-/**
- * @file main.cpp
- * @brief STM32F401RE LittleFS Implementation with Internal Flash Storage
- * @author Oussama Darouez
- * @date June 2025
- * @version 1.0
+/* 
+ **************************************************************************************************
+ *
+ * @file    : main.cpp
+ * @author  : [Your Name]
+ * @version : 1.0
+ * @date    : July 2025
+ * @brief   : Main program for LittleFS on STM32 with PlatformIO and Arduino
  * 
- * This file implements a LittleFS filesystem on STM32F401RE microcontroller
- * using internal flash memory for persistent storage. The implementation
- * provides read, write, erase, and sync operations for the filesystem.
+ **************************************************************************************************
  * 
- * @note This implementation uses the last portion of internal flash memory
- * for filesystem storage. Ensure your linker script accounts for this.
+ * @project  : stm32_littlefs
+ * @board    : nucleo_f401re
+ * @compiler : gcc-arm-none-eabi
+ * 
+ **************************************************************************************************
+ *
  */
 
- #include <Arduino.h>
- #include "lfs.h"
- 
- // Configuration defines
- 
- /* Base address of the Flash sectors Bank 1 */
- #define ADDR_FLASH_SECTOR_0     ((uint32_t)0x08000000) /* Base @ of Sector 0, 16 Kbytes */
- #define ADDR_FLASH_SECTOR_1     ((uint32_t)0x08004000) /* Base @ of Sector 1, 16 Kbytes */
- #define ADDR_FLASH_SECTOR_2     ((uint32_t)0x08008000) /* Base @ of Sector 2, 16 Kbytes */
- #define ADDR_FLASH_SECTOR_3     ((uint32_t)0x0800C000) /* Base @ of Sector 3, 16 Kbytes */
- #define ADDR_FLASH_SECTOR_4     ((uint32_t)0x08010000) /* Base @ of Sector 4, 64 Kbytes */
- #define ADDR_FLASH_SECTOR_5     ((uint32_t)0x08020000) /* Base @ of Sector 5, 128 Kbytes */
- #define ADDR_FLASH_SECTOR_6     ((uint32_t)0x08040000) /* Base @ of Sector 6, 128 Kbytes */
- #define ADDR_FLASH_SECTOR_7     ((uint32_t)0x08060000) /* Base @ of Sector 7, 128 Kbytes */
- #define ADDR_FLASH_SECTOR_8     ((uint32_t)0x08080000) /* Base @ of Sector 8, 128 Kbytes */
- #define ADDR_FLASH_SECTOR_9     ((uint32_t)0x080A0000) /* Base @ of Sector 9, 128 Kbytes */
- #define ADDR_FLASH_SECTOR_10    ((uint32_t)0x080C0000) /* Base @ of Sector 10, 128 Kbytes */
- #define ADDR_FLASH_SECTOR_11    ((uint32_t)0x080E0000) /* Base @ of Sector 11, 128 Kbytes */
- 
- /* Base address of the Flash sectors Bank 2 */
- #define ADDR_FLASH_SECTOR_12     ((uint32_t)0x08100000) /* Base @ of Sector 0, 16 Kbytes */
- #define ADDR_FLASH_SECTOR_13     ((uint32_t)0x08104000) /* Base @ of Sector 1, 16 Kbytes */
- #define ADDR_FLASH_SECTOR_14     ((uint32_t)0x08108000) /* Base @ of Sector 2, 16 Kbytes */
- #define ADDR_FLASH_SECTOR_15     ((uint32_t)0x0810C000) /* Base @ of Sector 3, 16 Kbytes */
- #define ADDR_FLASH_SECTOR_16     ((uint32_t)0x08110000) /* Base @ of Sector 4, 64 Kbytes */
- #define ADDR_FLASH_SECTOR_17     ((uint32_t)0x08120000) /* Base @ of Sector 5, 128 Kbytes */
- #define ADDR_FLASH_SECTOR_18     ((uint32_t)0x08140000) /* Base @ of Sector 6, 128 Kbytes */
- #define ADDR_FLASH_SECTOR_19     ((uint32_t)0x08160000) /* Base @ of Sector 7, 128 Kbytes */
- #define ADDR_FLASH_SECTOR_20     ((uint32_t)0x08180000) /* Base @ of Sector 8, 128 Kbytes */
- #define ADDR_FLASH_SECTOR_21     ((uint32_t)0x081A0000) /* Base @ of Sector 9, 128 Kbytes */
- #define ADDR_FLASH_SECTOR_22     ((uint32_t)0x081C0000) /* Base @ of Sector 10, 128 Kbytes */
- #define ADDR_FLASH_SECTOR_23     ((uint32_t)0x081E0000) /* Base @ of Sector 11, 128 Kbytes */
- #define LITTLE_FS_STARTIN_ADDRESS 0x08040000
- 
- // Global variables for filesystem operations
- lfs_t lfs;                              ///< LittleFS filesystem instance
- lfs_file_t file;                        ///< LittleFS file handle
- 
- uint32_t ef_err_port_cnt;        ///< Error counter for port operations
- uint32_t on_ic_read_cnt;         ///< Counter for read operations
- uint32_t on_ic_write_cnt;        ///< Counter for write operations
- 
- /**
-  * @brief Gets the sector of a given address
-  * @param None
-  * @retval The sector of a given address
-  */
- static uint32_t stm32_get_sector(uint32_t addr) {
-     uint32_t sector = 0;
- 
-     Serial.print("Address: 0x"); Serial.println(addr, HEX);
- 
-     if ((addr < ADDR_FLASH_SECTOR_1) && (addr >= ADDR_FLASH_SECTOR_0)) {
-         sector = FLASH_SECTOR_0;
-     } else if ((addr < ADDR_FLASH_SECTOR_2) && (addr >= ADDR_FLASH_SECTOR_1)) {
-         sector = FLASH_SECTOR_1;
-     } else if ((addr < ADDR_FLASH_SECTOR_3) && (addr >= ADDR_FLASH_SECTOR_2)) {
-         sector = FLASH_SECTOR_2;
-     } else if ((addr < ADDR_FLASH_SECTOR_4) && (addr >= ADDR_FLASH_SECTOR_3)) {
-         sector = FLASH_SECTOR_3;
-     } else if ((addr < ADDR_FLASH_SECTOR_5) && (addr >= ADDR_FLASH_SECTOR_4)) {
-         sector = FLASH_SECTOR_4;
-     } else if ((addr < ADDR_FLASH_SECTOR_6) && (addr >= ADDR_FLASH_SECTOR_5)) {
-         sector = FLASH_SECTOR_5;
-     } else if ((addr < ADDR_FLASH_SECTOR_7) && (addr >= ADDR_FLASH_SECTOR_6)) {
-         sector = FLASH_SECTOR_6;
-     } else if ((addr < ADDR_FLASH_SECTOR_8) && (addr >= ADDR_FLASH_SECTOR_7)) {
-         sector = FLASH_SECTOR_7;
-     }
- #if defined(FLASH_SECTOR_8)
-     else if ((addr < ADDR_FLASH_SECTOR_9) && (addr >= ADDR_FLASH_SECTOR_8)) {
-         sector = FLASH_SECTOR_8;
-     }
- #endif
- #if defined(FLASH_SECTOR_9)
-     else if ((addr < ADDR_FLASH_SECTOR_10) && (addr >= ADDR_FLASH_SECTOR_9)) {
-         sector = FLASH_SECTOR_9;
-     }
- #endif
- #if defined(FLASH_SECTOR_10)
-     else if ((addr < ADDR_FLASH_SECTOR_11) && (addr >= ADDR_FLASH_SECTOR_10)) {
-         sector = FLASH_SECTOR_10;
-     }
- #endif
- #if defined(FLASH_SECTOR_11)
-     else if ((addr < ADDR_FLASH_SECTOR_12) && (addr >= ADDR_FLASH_SECTOR_11)) {
-         sector = FLASH_SECTOR_11;
-     }
- #endif
- #if defined(STM32F427xx) || defined(STM32F437xx) || defined(STM32F429xx)|| defined(STM32F439xx) || defined(STM32F469xx) || defined(STM32F479xx)
-     else if ((addr < ADDR_FLASH_SECTOR_13) && (addr >= ADDR_FLASH_SECTOR_12)) {
-         sector = FLASH_SECTOR_12;
-     } else if ((addr < ADDR_FLASH_SECTOR_14) && (addr >= ADDR_FLASH_SECTOR_13)) {
-         sector = FLASH_SECTOR_13;
-     } else if ((addr < ADDR_FLASH_SECTOR_15) && (addr >= ADDR_FLASH_SECTOR_14)) {
-         sector = FLASH_SECTOR_14;
-     } else if ((addr < ADDR_FLASH_SECTOR_16) && (addr >= ADDR_FLASH_SECTOR_15)) {
-         sector = FLASH_SECTOR_15;
-     } else if ((addr < ADDR_FLASH_SECTOR_17) && (addr >= ADDR_FLASH_SECTOR_16)) {
-         sector = FLASH_SECTOR_16;
-     } else if ((addr < ADDR_FLASH_SECTOR_18) && (addr >= ADDR_FLASH_SECTOR_17)) {
-         sector = FLASH_SECTOR_17;
-     } else if ((addr < ADDR_FLASH_SECTOR_19) && (addr >= ADDR_FLASH_SECTOR_18)) {
-         sector = FLASH_SECTOR_18;
-     } else if ((addr < ADDR_FLASH_SECTOR_20) && (addr >= ADDR_FLASH_SECTOR_19)) {
-         sector = FLASH_SECTOR_19;
-     } else if ((addr < ADDR_FLASH_SECTOR_21) && (addr >= ADDR_FLASH_SECTOR_20)) {
-         sector = FLASH_SECTOR_20;
-     } else if ((addr < ADDR_FLASH_SECTOR_22) && (addr >= ADDR_FLASH_SECTOR_21)) {
-         sector = FLASH_SECTOR_21;
-     } else if ((addr < ADDR_FLASH_SECTOR_23) && (addr >= ADDR_FLASH_SECTOR_22)) {
-         sector = FLASH_SECTOR_22;
-     } else /* (addr < FLASH_END_ADDR) && (addr >= ADDR_FLASH_SECTOR_23) */ {
-         sector = FLASH_SECTOR_23;
-     }
- #endif
-     Serial.print("Sector: "); Serial.println(sector);
-     return sector;
- }
- 
- /**
-  * @brief Read data from flash memory
-  * 
-  * This function reads data from the internal flash memory at the specified
-  * offset. It performs byte-by-byte reading and includes error checking
-  * for address alignment.
-  * 
-  * @param offset Offset from base flash address
-  * @param buf Buffer to store read data
-  * @param size Number of bytes to read
-  * @return int Number of bytes read, or negative value on error
-  */
- static int read(long offset, uint8_t *buf, size_t size) {
-     size_t i;
-     long addr = LITTLE_FS_STARTIN_ADDRESS + offset;
- 
-     Serial.print("Reading offset: 0x"); Serial.println(offset, HEX);
-     Serial.print("Read size: "); Serial.println(size);
- 
-     for (i = 0; i < size; i++, buf++, addr++) {
-         *buf = *(uint8_t *) addr;
-     }
-     on_ic_read_cnt++;
-     return size;
- }
- 
- /**
-  * @brief Write data to flash memory
-  * 
-  * This function writes data to the internal flash memory at the specified
-  * offset. It uses byte-by-byte writes to avoid parallelism errors.
-  * Includes verification of written data.
-  * 
-  * @param offset Offset from base flash address
-  * @param buf Buffer containing data to write
-  * @param size Number of bytes to write
-  * @return int Number of bytes written, or -1 on error
-  */
- static int write(long offset, const uint8_t *buf, size_t size) {
-     long addr = LITTLE_FS_STARTIN_ADDRESS + offset;
- 
-     Serial.print("Writing offset: 0x"); Serial.println(offset, HEX);
-     Serial.print("Write size: "); Serial.println(size);
- 
-     HAL_FLASH_Unlock();
-     __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
- 
-     for (size_t i = 0; i < size; i++) {
-         if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, addr + i, buf[i]) != HAL_OK) {
-             Serial.print("Write failed, HAL error: "); Serial.println(HAL_FLASH_GetError());
-             ef_err_port_cnt++;
-             HAL_FLASH_Lock();
-             return -1;
-         }
-         // Verify written data
-         if (*(uint8_t*)(addr + i) != buf[i]) {
-             Serial.println("Write verification failed");
-             ef_err_port_cnt++;
-             HAL_FLASH_Lock();
-             return -1;
-         }
-     }
- 
-     HAL_FLASH_Lock();
-     on_ic_write_cnt++;
-     return size;
- }
- 
- /**
-  * @brief Erase flash memory pages
-  * 
-  * This function erases the specified flash memory region by erasing
-  * individual pages.
-  * 
-  * @param offset Offset from base flash address
-  * @param size Number of bytes to erase
-  * @return int Number of bytes erased, or -1 on error
-  */
- static int erase(long offset, size_t size) {
-     uint32_t FirstSector = 0, NbOfSectors = 0;
-     uint32_t SECTORError = 0;
-     FLASH_EraseInitTypeDef EraseInitStruct;
-     long addr = LITTLE_FS_STARTIN_ADDRESS + offset;
- 
-     Serial.print("Erasing offset: 0x"); Serial.println(offset, HEX);
-     Serial.print("Erase size: "); Serial.println(size);
-     Serial.print("First sector: "); Serial.println(stm32_get_sector(addr));
-     Serial.print("Number of sectors: "); Serial.println(stm32_get_sector(addr + size - 1) - stm32_get_sector(addr) + 1);
- 
-     HAL_FLASH_Unlock();
-     __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
- 
-     FirstSector = stm32_get_sector(addr);
-     NbOfSectors = stm32_get_sector(addr + size - 1) - FirstSector + 1;
-     EraseInitStruct.TypeErase = FLASH_TYPEERASE_SECTORS;
-     EraseInitStruct.VoltageRange = FLASH_VOLTAGE_RANGE_3;
-     EraseInitStruct.Sector = FirstSector;
-     EraseInitStruct.NbSectors = NbOfSectors;
- 
-     if (HAL_FLASHEx_Erase(&EraseInitStruct, (uint32_t *) &SECTORError) != HAL_OK) {
-         Serial.print("Erase failed, HAL error: "); Serial.println(HAL_FLASH_GetError());
-         ef_err_port_cnt++;
-         HAL_FLASH_Lock();
-         return -1;
-     }
- 
-     HAL_FLASH_Lock();
-     return size;
- }
- 
- /**
-  * @brief LittleFS read block device function
-  * 
-  * Interface function between LittleFS and the flash read operation.
-  * 
-  * @param c LittleFS configuration structure
-  * @param block Block number to read from
-  * @param off Offset within the block
-  * @param buffer Buffer to store read data
-  * @param size Number of bytes to read
-  * @return int 0 on success, negative value on error
-  */
- int read(const struct lfs_config *c, lfs_block_t block,
-          lfs_off_t off, void *buffer, lfs_size_t size) {
-     long offset = (block * c->block_size) + off;
-     int result = read(offset, (uint8_t*)buffer, size);
-     return (result == size) ? 0 : -1;
- }
- 
- /**
-  * @brief LittleFS write block device function
-  * 
-  * Interface function between LittleFS and the flash write operation.
-  * 
-  * @param c LittleFS configuration structure
-  * @param block Block number to write to
-  * @param off Offset within the block
-  * @param buffer Buffer containing data to write
-  * @param size Number of bytes to write
-  * @return int 0 on success, negative value on error
-  */
- int write(const struct lfs_config *c, lfs_block_t block,
-           lfs_off_t off, const void *buffer, lfs_size_t size) {
-     long offset = (block * c->block_size) + off;
-     int result = write(offset, (const uint8_t*)buffer, size);
-     return (result == size) ? 0 : -1;
- }
- 
- /**
-  * @brief LittleFS erase block device function
-  * 
-  * Interface function between LittleFS and the flash erase operation.
-  * 
-  * @param c LittleFS configuration structure
-  * @param block Block number to erase
-  * @return int 0 on success, negative value on error
-  */
- int erase(const struct lfs_config *c, lfs_block_t block) {
-     long offset = block * c->block_size;
-     int result = erase(offset, c->block_size);
-     return (result == c->block_size) ? 0 : -1;
- }
- 
- /**
-  * @brief LittleFS sync block device function
-  * 
-  * Ensures all pending write operations are completed. For internal flash,
-  * no additional synchronization is needed as writes are immediately committed.
-  * 
-  * @param c LittleFS configuration structure (unused)
-  * @return int Always returns 0 (success)
-  */
- int sync(const struct lfs_config *c) {
-     return 0;
- }
- 
- /**
-  * @brief LittleFS configuration structure
-  * 
-  * This structure defines the configuration parameters for the LittleFS
-  * filesystem, including block device operations and memory layout.
-  */
- const struct lfs_config cfg = {
-     .read = read,
-     .prog = write,
-     .erase = erase,
-     .sync = sync,
-     .read_size = 16,
-     .prog_size = 1,
-     .block_size = 1024,  // 16 KB 16384
-     .block_count = 256,    // 256 KB / 16 KB = 16 blocks
-     .block_cycles = 500,
-     .cache_size = 256,
-     .lookahead_size = 16,
- };
- 
- /**
-  * @brief Verify flash is erased
-  * 
-  * Checks if the specified flash region is fully erased (0xFF).
-  * 
-  * @param addr Start address
-  * @param size Size to check
-  * @return bool True if erased, false otherwise
-  */
- bool verify_flash_erased(uint32_t addr, size_t size) {
-     for (size_t i = 0; i < size; i++) {
-         if (*(uint8_t*)(addr + i) != 0xFF) {
-             Serial.print("Flash not erased at 0x"); Serial.println(addr + i, HEX);
-             return false;
-         }
-     }
-     return true;
- }
- 
- /**
-  * @brief Manually erase LittleFS flash region
-  * 
-  * Erases sectors 6–7 to ensure a clean state before formatting.
-  */
- void erase_littlefs_region() {
-     FLASH_EraseInitTypeDef EraseInitStruct;
-     uint32_t SECTORError = 0;
- 
-     HAL_FLASH_Unlock();
-     __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
- 
-     EraseInitStruct.TypeErase = FLASH_TYPEERASE_SECTORS;
-     EraseInitStruct.VoltageRange = FLASH_VOLTAGE_RANGE_3;
-     EraseInitStruct.Sector = FLASH_SECTOR_6;
-     EraseInitStruct.NbSectors = 2; // Sectors 6 and 7
- 
-     Serial.println("Manually erasing LittleFS region (sectors 6–7)...");
-     if (HAL_FLASHEx_Erase(&EraseInitStruct, &SECTORError) != HAL_OK) {
-         Serial.print("Manual erase failed, HAL error: "); Serial.println(HAL_FLASH_GetError());
-         ef_err_port_cnt++;
-     } else {
-         Serial.println("Manual erase successful");
-         // Verify erase for the entire 256 KB region
-         if (verify_flash_erased(LITTLE_FS_STARTIN_ADDRESS, 128 * 1024 * 2)) {
-             Serial.println("Flash verified as erased");
-         } else {
-             Serial.println("Flash verification failed");
-             ef_err_port_cnt++;
-         }
-     }
- 
-     HAL_FLASH_Lock();
- }
- 
- /**
-  * @brief Arduino setup function
-  * 
-  * Initializes the serial communication and LittleFS filesystem.
-  * Creates a boot counter file to demonstrate filesystem functionality.
-  */
- void setup() {
-     Serial.begin(9600);
-     while (!Serial) {} // Wait for serial
-     Serial.println("STM32F401RE LittleFS Demo");
-     Serial.println("========================================");
-     
-     Serial.print("System clock: "); Serial.print(SystemCoreClock / 1000000); Serial.println(" MHz");
-     Serial.print("Flash latency: "); Serial.println((FLASH->ACR & FLASH_ACR_LATENCY) >> FLASH_ACR_LATENCY_Pos);
-     Serial.println("Note: Skipping write protection check as confirmed disabled in STM32CubeProgrammer");
- 
-     erase_littlefs_region();
-     
-     int err = lfs_mount(&lfs, &cfg);
-     if (err) {
-         Serial.println("Formatting filesystem...");
-         err = lfs_format(&lfs, &cfg);
-         if (err) {
-             Serial.print("Format failed, error: "); Serial.println(err);
-             return;
-         }
-         err = lfs_mount(&lfs, &cfg);
-         if (err) {
-             Serial.print("Failed to mount filesystem, error: "); Serial.println(err);
-             return;
-         }
-         Serial.println("Filesystem formatted and mounted successfully");
-     } else {
-         Serial.println("Filesystem mounted successfully");
-     }
-     
-     // Boot count
-     uint32_t boot_count = 0;
-     err = lfs_file_open(&lfs, &file, "boot_count", LFS_O_RDWR | LFS_O_CREAT);
-     if (err) {
-         Serial.print("Failed to open boot_count file, error: "); Serial.println(err);
-         lfs_unmount(&lfs);
-         return;
-     }
-     for (int i = 0; i < 5; i++) {
-         lfs_file_read(&lfs, &file, &boot_count, sizeof(boot_count));
-         boot_count += 1;
-         lfs_file_rewind(&lfs, &file);
-         lfs_file_write(&lfs, &file, &boot_count, sizeof(boot_count));
-         Serial.print("Boot count: "); Serial.println(boot_count);
-     }
-     lfs_file_close(&lfs, &file);
- 
-     // Create directory
-     err = lfs_mkdir(&lfs, "txts");
-     if (err && err != LFS_ERR_EXIST) {
-         Serial.print("Failed to create directory, error: "); Serial.println(err);
-         lfs_unmount(&lfs);
-         return;
-     }
-     Serial.println("Created directory 'txts'");
- 
-     // Create and write to file
-     err = lfs_file_open(&lfs, &file, "txts/myfile.txt", LFS_O_RDWR | LFS_O_CREAT);
-     if (err) {
-         Serial.print("File open failed, error: "); Serial.println(err);
-         lfs_unmount(&lfs);
-         return;
-     }
-     const char *data = "This is a text file in the txts directory!";
-     lfs_ssize_t bytes_written = lfs_file_write(&lfs, &file, data, strlen(data));
-     if (bytes_written < 0) {
-         Serial.print("Write failed, error: "); Serial.println(bytes_written);
-     } else {
-         Serial.print("Wrote "); Serial.print(bytes_written); Serial.println(" bytes to txts/myfile.txt");
-     }
-     lfs_file_close(&lfs, &file);
- 
-     // Read from file
-     err = lfs_file_open(&lfs, &file, "txts/myfile.txt", LFS_O_RDONLY);
-     if (err) {
-         Serial.print("Failed to open txts/myfile.txt for reading, error: "); Serial.println(err);
-         lfs_unmount(&lfs);
-         return;
-     }
-     char buffer[64]; // Buffer to hold file contents (larger than the 41-byte string)
-     lfs_ssize_t bytes_read = lfs_file_read(&lfs, &file, buffer, sizeof(buffer) - 1);
-     if (bytes_read < 0) {
-         Serial.print("Read failed, error: "); Serial.println(bytes_read);
-         lfs_file_close(&lfs, &file);
-         lfs_unmount(&lfs);
-         return;
-     }
-     buffer[bytes_read] = '\0'; // Null-terminate the string
-     Serial.print("Read "); Serial.print(bytes_read); Serial.println(" bytes from txts/myfile.txt");
-     Serial.print("File contents: "); Serial.println(buffer);
-     lfs_file_close(&lfs, &file);
- 
-     // Unmount filesystem
-     err = lfs_unmount(&lfs);
-     if (err) {
-         Serial.print("Unmount failed, error: "); Serial.println(err);
-         return;
-     }
- 
-     Serial.println("Setup completed successfully");
-     Serial.print("Read operations: "); Serial.println(on_ic_read_cnt);
-     Serial.print("Write operations: "); Serial.println(on_ic_write_cnt);
-     Serial.print("Port errors: "); Serial.println(ef_err_port_cnt);
- }
- 
- void loop() {
-     delay(1000);
- }
+/*-----------------------------------------------------------------------------------------------*/
+/* Includes                                                                                      */
+/*-----------------------------------------------------------------------------------------------*/
+#include <Arduino.h>
+#include <lfs.h>
+#include "FlashAbstractionLayerFactory.h"
+
+/*-----------------------------------------------------------------------------------------------*/
+/* Global Variables                                                                              */
+/*-----------------------------------------------------------------------------------------------*/
+IFlashAbstractionLayer *fal = FlashAbstractionLayerFactory::createFlashAbstractionLayer();
+lfs_t lfs;
+extern uint32_t ef_err_port_cnt;  // Error counter for flash operations
+extern uint32_t on_ic_write_cnt;  // Counter for successful write operations
+extern uint32_t on_ic_read_cnt;   // Counter for successful read operations
+
+/*-----------------------------------------------------------------------------------------------*/
+/* Private Functions                                                                             */
+/*-----------------------------------------------------------------------------------------------*/
+int erase_littlefs_region() {
+    // Erase 256 KB (sectors 6–7)
+    int err = fal->erase(0, 256 * 1024);
+    if (err < 0) {
+      Serial.println("Error: Failed to erase LittleFS region");
+      return err;
+    }
+  
+    // Verify the erased state
+    if (! fal->verify_flash_erased(0x08040000, 256 * 1024)) {
+      Serial.println("Error: Flash verification failed");
+      return -1;
+    }
+  
+    Serial.println("LittleFS region erased and verified");
+    return 0;
+  }
+int erase(const struct lfs_config *c, lfs_block_t block) {
+  long offset = block * c->block_size;
+  int result = fal->erase(offset, c->block_size);
+  return (result >= 0) ? 0 : -1; // STM32F4FlashAbstractionLayer::erase returns size or -1
+}
+
+int sync(const struct lfs_config *c) {
+  return fal->sync();
+}
+
+int write(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, const void *buffer, lfs_size_t size) {
+  long offset = (block * c->block_size) + off;
+  int result = fal->write(offset, (const uint8_t*)buffer, size);
+  return (result == size) ? 0 : -1;
+}
+
+int read(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, void *buffer, lfs_size_t size) {
+  long offset = (block * c->block_size) + off;
+  int result = fal->read(offset, (uint8_t*)buffer, size);
+  return (result == size) ? 0 : -1;
+}
+
+/*-----------------------------------------------------------------------------------------------*/
+/* Setup                                                                                         */
+/*-----------------------------------------------------------------------------------------------*/
+void setup() {
+lfs_file_t file;
+const struct lfs_config cfg = {
+    .read = read,
+    .prog = write,
+    .erase = erase,
+    .sync = sync,
+    .read_size = 16,
+    .prog_size = 1,
+    .block_size = 1024,
+    .block_count = 256,
+    .block_cycles = 500,
+    .cache_size = 256,
+    .lookahead_size = 16,
+  };
+  Serial.begin(9600);
+  while (!Serial) {} // Wait for serial
+  Serial.println("STM32F401RE LittleFS Demo");
+  Serial.println("========================================");
+  
+  Serial.print("System clock: "); Serial.print(SystemCoreClock / 1000000); Serial.println(" MHz");
+  Serial.print("Flash latency: "); Serial.println((FLASH->ACR & FLASH_ACR_LATENCY) >> FLASH_ACR_LATENCY_Pos);
+  Serial.println("Note: Skipping write protection check as confirmed disabled in STM32CubeProgrammer");
+
+  // Erase LittleFS region
+  if (erase_littlefs_region() != 0) {
+    Serial.println("Setup aborted due to erase failure");
+    return;
+  }
+  
+  // Mount filesystem
+  int err = lfs_mount(&lfs, &cfg);
+  if (err) {
+    Serial.println("Formatting filesystem...");
+    err = lfs_format(&lfs, &cfg);
+    if (err) {
+      Serial.print("Format failed, error: "); Serial.println(err);
+      return;
+    }
+    err = lfs_mount(&lfs, &cfg);
+    if (err) {
+      Serial.print("Failed to mount filesystem, error: "); Serial.println(err);
+      return;
+    }
+    Serial.println("Filesystem formatted and mounted successfully");
+  } else {
+    Serial.println("Filesystem mounted successfully");
+  }
+  
+  // Boot count
+  uint32_t boot_count = 0;
+  err = lfs_file_open(&lfs, &file, "boot_count", LFS_O_RDWR | LFS_O_CREAT);
+  if (err) {
+    Serial.print("Failed to open boot_count file, error: "); Serial.println(err);
+    lfs_unmount(&lfs);
+    return;
+  }
+  for (int i = 0; i < 5; i++) {
+    lfs_file_read(&lfs, &file, &boot_count, sizeof(boot_count));
+    boot_count += 1;
+    lfs_file_rewind(&lfs, &file);
+    lfs_file_write(&lfs, &file, &boot_count, sizeof(boot_count));
+    Serial.print("Boot count: "); Serial.println(boot_count);
+  }
+  lfs_file_close(&lfs, &file);
+
+  // Create directory
+  err = lfs_mkdir(&lfs, "txts");
+  if (err && err != LFS_ERR_EXIST) {
+    Serial.print("Failed to create directory, error: "); Serial.println(err);
+    lfs_unmount(&lfs);
+    return;
+  }
+  Serial.println("Created directory 'txts'");
+
+  // Create and write to file
+  err = lfs_file_open(&lfs, &file, "txts/myfile.txt", LFS_O_RDWR | LFS_O_CREAT);
+  if (err) {
+    Serial.print("File open failed, error: "); Serial.println(err);
+    lfs_unmount(&lfs);
+    return;
+  }
+  const char *data = "This is a text file in the txts directory!";
+  lfs_ssize_t bytes_written = lfs_file_write(&lfs, &file, data, strlen(data));
+  if (bytes_written < 0) {
+    Serial.print("Write failed, error: "); Serial.println(bytes_written);
+  } else {
+    Serial.print("Wrote "); Serial.print(bytes_written); Serial.println(" bytes to txts/myfile.txt");
+  }
+  lfs_file_close(&lfs, &file);
+
+  // Read from file
+  err = lfs_file_open(&lfs, &file, "txts/myfile.txt", LFS_O_RDONLY);
+  if (err) {
+    Serial.print("Failed to open txts/myfile.txt for reading, error: "); Serial.println(err);
+    lfs_unmount(&lfs);
+    return;
+  }
+  char buffer[64]; // Buffer to hold file contents (larger than the 41-byte string)
+  lfs_ssize_t bytes_read = lfs_file_read(&lfs, &file, buffer, sizeof(buffer) - 1);
+  if (bytes_read < 0) {
+    Serial.print("Read failed, error: "); Serial.println(bytes_read);
+    lfs_file_close(&lfs, &file);
+    lfs_unmount(&lfs);
+    return;
+  }
+  buffer[bytes_read] = '\0'; // Null-terminate the string
+  Serial.print("Read "); Serial.print(bytes_read); Serial.println(" bytes from txts/myfile.txt");
+  Serial.print("File contents: "); Serial.println(buffer);
+  lfs_file_close(&lfs, &file);
+
+  // Unmount filesystem
+  err = lfs_unmount(&lfs);
+  if (err) {
+    Serial.print("Unmount failed, error: "); Serial.println(err);
+    return;
+  }
+  Serial.print("Read operations: "); Serial.println(on_ic_read_cnt);
+  Serial.print("Write operations: "); Serial.println(on_ic_write_cnt);
+  Serial.print("Port errors: "); Serial.println(ef_err_port_cnt);
+}
+
+/*-----------------------------------------------------------------------------------------------*/
+/* Loop                                                                                          */
+/*-----------------------------------------------------------------------------------------------*/
+void loop() {
+  delay(1000);
+}

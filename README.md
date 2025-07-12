@@ -70,7 +70,7 @@ The `lfs_config` struct defines how LittleFS interacts with STM32 flash. Here ar
 
 ## Setting Up LittleFS
 
-1. **Install Dependencies**: 
+1. **Install Dependencies**:
    - Create a PlatformIO project and configure the `platformio.ini` file to include the Arduino STM32 framework and LittleFS library. Below is an example configuration for an STM32F401RE board (e.g., Nucleo-F401RE):
      ```ini
      [env:nucleo_f401re]
@@ -81,7 +81,6 @@ The `lfs_config` struct defines how LittleFS interacts with STM32 flash. Here ar
          -Iinclude
          -Ilib/littleFS/inc
      lib_deps = 
-         stm32duino/STM32duino FreeRTOS@^10.3.2 
          lib/littleFS
      lib_extra_dirs = 
          lib/littleFS
@@ -89,9 +88,76 @@ The `lfs_config` struct defines how LittleFS interacts with STM32 flash. Here ar
    - This sets up the STM32 platform, specifies the board, includes FreeRTOS and LittleFS libraries, and adds paths for LittleFS headers and source files.
 
 2. **Configure Flash**: Ensure your flash region is write-enabled (e.g., via STM32CubeProgrammer).
-3. **Implement FAL**: Define `read`, `write`, `erase`, and `sync` functions using HAL to access STM32 flash or external storage.
-4. **Set Up `lfs_config`**: Configure block size, count, and other parameters to match your storage capacity.
+
+3. **Implement FAL**: Define `read`, `write`, `erase`, and `sync` functions using the `STM32F4FlashAbstractionLayer` class, created via `FlashAbstractionLayerFactory`. Example in `main`:
+     ```cpp
+      #include <Arduino.h>
+      #include <lfs.h>
+      #include "FlashAbstractionLayerFactory.h"
+
+      IFlashAbstractionLayer *fal = FlashAbstractionLayerFactory::createFlashAbstractionLayer();
+      int erase_littlefs_region() {
+         // Erase 256 KB (sectors 6–7)
+         int err = fal->erase(0, 256 * 1024);
+         if (err < 0) {
+            Serial.println("Error: Failed to erase LittleFS region");
+            return err;
+         }
+  
+         // Verify the erased state
+         if (! fal->verify_flash_erased(0x08040000, 256 * 1024)) {
+            Serial.println("Error: Flash verification failed");
+            return -1;
+         }
+  
+         Serial.println("LittleFS region erased and verified");
+         return 0;
+      }
+      int erase(const struct lfs_config *c, lfs_block_t block) {
+        long offset = block * c->block_size;
+        int result = fal->erase(offset, c->block_size);
+        return (result >= 0) ? 0 : -1; // STM32F4FlashAbstractionLayer::erase returns size or -1
+      }
+
+      int sync(const struct lfs_config *c) {
+        return fal->sync();
+      }
+
+      int write(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, const void *buffer, lfs_size_t size) {
+        long offset = (block * c->block_size) + off;
+        int result = fal->write(offset, (const uint8_t*)buffer, size);
+        return (result == size) ? 0 : -1;
+      }
+
+      int read(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, void *buffer, lfs_size_t size) {
+        long offset = (block * c->block_size) + off;
+        int result = fal->read(offset, (uint8_t*)buffer, size);
+        return (result == size) ? 0 : -1;
+      }okahead_size = 16
+      void setup() {
+      lfs_file_t file;
+      const struct lfs_config cfg = {
+         .read = read,
+         .prog = write,
+         .erase = erase,
+         .sync = sync,
+         .read_size = 16,
+         .prog_size = 1,
+         .block_size = 1024,
+         .block_count = 256,
+         .block_cycles = 500,
+         .cache_size = 256,
+         .lookahead_size = 16,
+      };
+      // Rest of your code here 
+      }
+
+     ```
+
+4. **Set Up `lfs_config`**: Configure block size, count, and other parameters to match your storage capacity, as shown above.
+
 5. **Use the Filesystem**: Mount, format if needed, and perform file operations (open, read, write, close). Always unmount when done.
+
 6. **Debug**: Use serial output to monitor operations and a programmer to verify flash contents.
 
 ## Tips
